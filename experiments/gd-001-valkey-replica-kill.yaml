@@ -1,0 +1,59 @@
+# Game day plan. Validate with: gameday validate experiments/
+apiVersion: gameday/v1
+id: GD-001
+title: One Valkey replica dies during checkout
+owner: platform-team
+service: checkout
+scheduled_start: 2026-11-05T14:00:00Z
+
+steady_state:
+  - metric: checkout_p99_ms
+    description: 99th percentile latency of POST /checkout
+    unit: ms
+    slo: {op: "<", value: 300}
+  - metric: checkout_error_rate_pct
+    description: Share of POST /checkout answered with 5xx
+    unit: "%"
+    slo: {op: "<", value: 1}
+
+hypothesis:
+  statement: If one Valkey replica dies, checkout p99 stays under 300 ms and errors stay under 1%.
+  expectations:
+    - {metric: checkout_p99_ms, op: "<", value: 300}
+    - {metric: checkout_error_rate_pct, op: "<", value: 1}
+
+fault:
+  kind: pod-kill
+  target:
+    namespace: shop
+    selector: {app: valkey, role: replica}
+    replicas: 3
+  affected: 1
+  duration: 5m
+
+load:
+  tool: k6
+  rps: 50
+  duration: 10m
+
+blast_radius:
+  environment: staging
+  namespaces: [shop]
+  max_pods_affected: 1
+  max_traffic_pct: 100
+  max_duration: 10m
+  user_impact: Staging only; slower checkout for synthetic k6 users while a replica restarts.
+  dependencies: [valkey, checkout-api]
+
+abort_conditions:
+  - {metric: checkout_error_rate_pct, op: ">", value: 5, for: 30s}
+  - {metric: checkout_p99_ms, op: ">", value: 1000, for: 60s}
+
+rollback:
+  - Delete the PodChaos object (kubectl delete podchaos gd-001 -n chaos-mesh).
+  - Confirm the Valkey StatefulSet is back to 3/3 ready replicas.
+  - Stop the k6 run.
+
+approval:
+  approved_by: [sre-lead]
+  approved_at: 2026-10-23T09:00:00Z

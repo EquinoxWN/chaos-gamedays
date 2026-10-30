@@ -1,0 +1,51 @@
+# Deliberately unsafe plan: gameday validate must reject it (used by tests and the proof image).
+apiVersion: gameday/v1
+id: GD-900
+title: Kill every Valkey pod in production, approved after the fact
+owner: platform-team
+service: checkout
+scheduled_start: 2026-11-05T14:00:00Z
+
+steady_state:
+  - metric: checkout_p99_ms
+    description: 99th percentile latency of POST /checkout
+    unit: ms
+    slo: {op: "<", value: 300}
+
+hypothesis:
+  statement: If all Valkey pods die, checkout p99 stays under 500 ms.
+  expectations:
+    - {metric: checkout_p99_ms, op: "<", value: 500}
+    - {metric: cart_size_items, op: ">", value: 0}
+
+fault:
+  kind: pod-kill
+  target:
+    namespace: kube-system
+    selector: {app: valkey}
+    replicas: 3
+  affected: 3
+  duration: 30m
+
+load:
+  tool: k6
+  rps: 50
+  duration: 10m
+
+blast_radius:
+  environment: production
+  namespaces: [shop]
+  max_pods_affected: 1
+  max_traffic_pct: 100
+  max_duration: 10m
+  user_impact: Real customers cannot check out.
+
+abort_conditions:
+  - {metric: checkout_p99_ms, op: ">", value: 250, for: 1h}
+
+rollback:
+  - Restart Valkey.
+
+approval:
+  approved_by: [platform-team]
+  approved_at: 2026-11-05T15:00:00Z

@@ -1,0 +1,58 @@
+apiVersion: gameday/v1
+id: GD-003
+title: Disk IO delay on the orders Postgres replica
+owner: data-platform
+service: order-history
+scheduled_start: 2026-11-19T14:00:00Z
+
+steady_state:
+  - metric: order_history_p95_ms
+    description: 95th percentile latency of GET /orders (read replica)
+    unit: ms
+    slo: {op: "<", value: 400}
+  - metric: replication_lag_s
+    description: Postgres replica lag behind the primary
+    unit: s
+    slo: {op: "<", value: 5}
+
+hypothesis:
+  statement: If the read replica's disk gets 100 ms IO delay, order history p95 stays under 400 ms because reads fail over to the primary.
+  expectations:
+    - {metric: order_history_p95_ms, op: "<", value: 400}
+
+fault:
+  kind: io-delay
+  target:
+    namespace: orders
+    selector: {app: postgres, role: replica}
+    replicas: 2
+  affected: 1
+  duration: 5m
+  parameters: {delay_ms: 100, percent: 50}
+
+load:
+  tool: k6
+  rps: 30
+  duration: 10m
+
+blast_radius:
+  environment: staging
+  namespaces: [orders]
+  max_pods_affected: 1
+  max_traffic_pct: 100
+  max_duration: 10m
+  user_impact: Staging only; order history reads may be slower; writes are not targeted.
+  dependencies: [postgres, order-history-api]
+
+abort_conditions:
+  - {metric: order_history_p95_ms, op: ">", value: 2000, for: 30s}
+  - {metric: replication_lag_s, op: ">", value: 60, for: 1m}
+
+rollback:
+  - Delete the IOChaos object (kubectl delete iochaos gd-003 -n chaos-mesh).
+  - Confirm replica lag is back under 5 s.
+  - Stop the k6 run.
+
+approval:
+  approved_by: [dba-on-call, sre-lead]
+  approved_at: 2026-10-23T09:00:00Z

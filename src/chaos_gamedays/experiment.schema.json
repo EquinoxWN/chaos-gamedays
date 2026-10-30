@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/EquinoxWN/chaos-gamedays/schema/experiment.schema.json",
+  "title": "Game day experiment plan",
+  "description": "A chaos experiment written down before it starts: hypothesis, blast radius, abort conditions and rollback.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "id", "title", "owner", "service", "scheduled_start", "steady_state", "hypothesis", "fault", "load", "blast_radius", "abort_conditions", "rollback", "approval"],
+  "$defs": {
+    "op": {"enum": ["<", "<=", ">", ">="]},
+    "duration": {"type": "string", "pattern": "^[1-9][0-9]{0,4}(s|m|h)$"},
+    "metric": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 80},
+    "text": {"type": "string", "minLength": 1, "maxLength": 500},
+    "namespace": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?Z$"},
+    "threshold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "value"],
+      "properties": {"op": {"$ref": "#/$defs/op"}, "value": {"type": "number"}}
+    }
+  },
+  "properties": {
+    "apiVersion": {"const": "gameday/v1"},
+    "id": {"type": "string", "pattern": "^GD-[0-9]{3}$"},
+    "title": {"$ref": "#/$defs/text"},
+    "owner": {"$ref": "#/$defs/name"},
+    "service": {"$ref": "#/$defs/name"},
+    "scheduled_start": {"$ref": "#/$defs/timestamp"},
+    "steady_state": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric", "description", "unit", "slo"],
+        "properties": {
+          "metric": {"$ref": "#/$defs/metric"},
+          "description": {"$ref": "#/$defs/text"},
+          "unit": {"type": "string", "minLength": 1, "maxLength": 16},
+          "slo": {"$ref": "#/$defs/threshold"}
+        }
+      }
+    },
+    "hypothesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement", "expectations"],
+      "properties": {
+        "statement": {"$ref": "#/$defs/text"},
+        "expectations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["metric", "op", "value"],
+            "properties": {"metric": {"$ref": "#/$defs/metric"}, "op": {"$ref": "#/$defs/op"}, "value": {"type": "number"}}
+          }
+        }
+      }
+    },
+    "fault": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "target", "affected", "duration"],
+      "properties": {
+        "kind": {"enum": ["pod-kill", "network-delay", "io-delay", "cpu-stress"]},
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["namespace", "selector", "replicas"],
+          "properties": {
+            "namespace": {"$ref": "#/$defs/namespace"},
+            "selector": {
+              "type": "object",
+              "minProperties": 1,
+              "maxProperties": 8,
+              "additionalProperties": {"type": "string", "pattern": "^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$"}
+            },
+            "replicas": {"type": "integer", "minimum": 1, "maximum": 1000}
+          }
+        },
+        "affected": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "duration": {"$ref": "#/$defs/duration"},
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "latency_ms": {"type": "integer", "minimum": 1, "maximum": 60000},
+            "jitter_ms": {"type": "integer", "minimum": 0, "maximum": 60000},
+            "delay_ms": {"type": "integer", "minimum": 1, "maximum": 60000},
+            "percent": {"type": "integer", "minimum": 1, "maximum": 100},
+            "workers": {"type": "integer", "minimum": 1, "maximum": 64},
+            "load_pct": {"type": "integer", "minimum": 1, "maximum": 100}
+          }
+        }
+      }
+    },
+    "load": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "rps", "duration"],
+      "properties": {
+        "tool": {"const": "k6"},
+        "rps": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "duration": {"$ref": "#/$defs/duration"}
+      }
+    },
+    "blast_radius": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment", "namespaces", "max_pods_affected", "max_traffic_pct", "max_duration", "user_impact"],
+      "properties": {
+        "environment": {"enum": ["dev", "staging", "production"]},
+        "namespaces": {"type": "array", "minItems": 1, "maxItems": 10, "uniqueItems": true, "items": {"$ref": "#/$defs/namespace"}},
+        "max_pods_affected": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "max_traffic_pct": {"type": "integer", "minimum": 0, "maximum": 100},
+        "max_duration": {"$ref": "#/$defs/duration"},
+        "user_impact": {"$ref": "#/$defs/text"},
+        "dependencies": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/name"}}
+      }
+    },
+    "abort_conditions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric", "op", "value", "for"],
+        "properties": {
+          "metric": {"$ref": "#/$defs/metric"},
+          "op": {"$ref": "#/$defs/op"},
+          "value": {"type": "number"},
+          "for": {"$ref": "#/$defs/duration"}
+        }
+      }
+    },
+    "rollback": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"$ref": "#/$defs/text"}},
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approved_by", "approved_at"],
+      "properties": {
+        "approved_by": {"type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true, "items": {"$ref": "#/$defs/name"}},
+        "approved_at": {"$ref": "#/$defs/timestamp"}
+      }
+    }
+  }
+}

@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: the workflow can read the code and nothing else.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Every action is pinned to a full commit SHA.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - run: make ci
+      - name: Unsafe plan must be rejected
+        run: |
+          if gameday validate examples/unsafe/ > unsafe.txt; then
+            echo "::error title=gameday validate::the deliberately unsafe plan was accepted"; exit 1
+          fi
+          echo "::notice title=gameday validate::$(tail -n 1 unsafe.txt) in the unsafe example; shipped plans pass every rule and are sealed"
+      - name: Hypothesis verdicts on the demo series
+        run: |
+          for k in held refuted aborted; do
+            set +e; gameday evaluate experiments/gd-001-valkey-replica-kill.yaml --series examples/series/gd-001-$k.json > v.txt; set -e
+            head -n 1 v.txt | grep -qi "$k" || { echo "::error title=gameday evaluate::$k series gave $(head -n 1 v.txt)"; exit 1; }
+          done
+          echo "::notice title=gameday evaluate::held, refuted and aborted demo series judged as expected"
+      - name: Known-vulnerability audit
+        run: make audit

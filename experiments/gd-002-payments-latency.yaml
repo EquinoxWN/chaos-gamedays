@@ -1,0 +1,59 @@
+apiVersion: gameday/v1
+id: GD-002
+title: 200 ms network latency on one payments pod
+owner: payments-team
+service: checkout
+scheduled_start: 2026-11-12T14:00:00Z
+
+steady_state:
+  - metric: checkout_p99_ms
+    description: 99th percentile latency of POST /checkout
+    unit: ms
+    slo: {op: "<", value: 300}
+  - metric: payment_timeout_rate_pct
+    description: Share of payment calls that hit the 2 s client timeout
+    unit: "%"
+    slo: {op: "<", value: 0.5}
+
+hypothesis:
+  statement: If one of three payments pods gets 200 ms extra latency, retries and load balancing keep checkout p99 under 300 ms.
+  expectations:
+    - {metric: checkout_p99_ms, op: "<", value: 300}
+    - {metric: payment_timeout_rate_pct, op: "<", value: 0.5}
+
+fault:
+  kind: network-delay
+  target:
+    namespace: payments
+    selector: {app: payments-api}
+    replicas: 3
+  affected: 1
+  duration: 10m
+  parameters: {latency_ms: 200, jitter_ms: 20, percent: 100}
+
+load:
+  tool: k6
+  rps: 80
+  duration: 15m
+
+blast_radius:
+  environment: staging
+  namespaces: [payments]
+  max_pods_affected: 1
+  max_traffic_pct: 100
+  max_duration: 15m
+  user_impact: Staging only; about a third of payment calls are slower during the fault.
+  dependencies: [payments-api, checkout-api]
+
+abort_conditions:
+  - {metric: payment_timeout_rate_pct, op: ">", value: 5, for: 1m}
+  - {metric: checkout_p99_ms, op: ">", value: 1500, for: 1m}
+
+rollback:
+  - Delete the NetworkChaos object (kubectl delete networkchaos gd-002 -n chaos-mesh).
+  - Check tc rules are gone from the payments pod (no netem qdisc).
+  - Stop the k6 run.
+
+approval:
+  approved_by: [sre-lead]
+  approved_at: 2026-10-23T09:00:00Z

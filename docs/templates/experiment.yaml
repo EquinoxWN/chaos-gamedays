@@ -1,0 +1,60 @@
+# Experiment plan template. Copy to experiments/gd-NNN-<short-name>.yaml, fill every field,
+# then run: gameday validate experiments/ && gameday seal experiments/ --lock experiments/plans.lock.json
+apiVersion: gameday/v1
+id: GD-000                      # GD- plus three digits, unique across experiments/
+title: One replica of a dependency dies under load
+owner: owning-team              # may not also be an approver
+service: checkout
+scheduled_start: 2026-12-01T14:00:00Z   # UTC; approval and seal must come before this
+
+# Metrics that describe "normal". Each has an SLO; all must hold before the fault starts.
+steady_state:
+  - metric: checkout_p99_ms
+    description: 99th percentile latency of POST /checkout
+    unit: ms
+    slo: {op: "<", value: 300}
+
+# The falsifiable claim. Every expectation names a steady-state metric and is at least as strict
+# as its SLO; it is checked on every sample during the fault window.
+hypothesis:
+  statement: If one replica dies, checkout p99 stays under 300 ms.
+  expectations:
+    - {metric: checkout_p99_ms, op: "<", value: 300}
+
+# What is broken, where, for how long. affected must leave at least one replica untouched.
+fault:
+  kind: pod-kill                # pod-kill | network-delay | io-delay | cpu-stress
+  target:
+    namespace: shop
+    selector: {app: valkey, role: replica}
+    replicas: 3
+  affected: 1
+  duration: 5m
+
+load:
+  tool: k6
+  rps: 50
+  duration: 10m                 # at least as long as the fault
+
+# The most the experiment may touch. Production needs 2 approvers and at most 10% of traffic;
+# kube-system, kube-public, kube-node-lease, chaos-mesh and monitoring are never allowed.
+blast_radius:
+  environment: staging          # dev | staging | production
+  namespaces: [shop]
+  max_pods_affected: 1
+  max_traffic_pct: 100
+  max_duration: 10m
+  user_impact: Staging only; slower checkout for synthetic users.
+  dependencies: [valkey]
+
+# Stop at once when any condition holds for the given window. Each must fire on the bad side of
+# the hypothesis, beyond its threshold, and its window must be shorter than the fault.
+abort_conditions:
+  - {metric: checkout_p99_ms, op: ">", value: 1000, for: 60s}
+
+rollback:
+  - Delete the chaos object and confirm all replicas are ready again.
+
+approval:
+  approved_by: [sre-lead]
+  approved_at: 2026-11-20T09:00:00Z
