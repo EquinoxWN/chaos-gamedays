@@ -93,3 +93,21 @@ def test_usage_errors_exit_2(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     bad.write_text("{not json", encoding="utf-8")
     assert main(["evaluate", str(GD001), "--series", str(bad)]) == 2
     assert capsys.readouterr().err.count("error:") == 2
+
+
+def test_seal_twice_is_idempotent(tmp_path: Path) -> None:
+    lock = tmp_path / "plans.lock.json"
+    assert main(["seal", str(GD001), "--lock", str(lock), "--now", "2026-10-30T12:00:00Z"]) == 0
+    first = lock.read_text(encoding="utf-8")
+    assert main(["seal", str(GD001), "--lock", str(lock), "--now", "2026-10-31T12:00:00Z"]) == 0
+    assert lock.read_text(encoding="utf-8") == first
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["plans.lock.json"]
+
+
+def test_naive_now_and_negative_max_breaches_are_usage_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["seal", str(GD001), "--lock", str(tmp_path / "l.json"), "--now", "2026-10-30T12:00:00"]) == 2
+    held = str(SERIES / "gd-001-held.json")
+    assert main(["evaluate", str(GD001), "--series", held, "--max-breaches", "-1"]) == 2
+    err = capsys.readouterr().err
+    assert "no time zone" in err
+    assert "--max-breaches must be >= 0" in err

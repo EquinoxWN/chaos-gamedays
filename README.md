@@ -20,7 +20,7 @@ findings from 9 rules:
 
 ![gameday validate on the shipped plans and on the unsafe example](docs/proof/plans.jpg)
 
-115 tests pass locally (schema, rules, sealing, evaluation, CLI), mypy `--strict` and ruff are
+128 tests pass locally (schema, rules, sealing, evaluation, CLI), mypy `--strict` and ruff are
 clean, pip-audit finds no known vulnerabilities, and the GD-001 hypothesis is judged held, refuted
 and aborted on three synthetic demo series:
 
@@ -104,7 +104,7 @@ Language: **Python** (3.11+) with YAML plans. Code in [`src/chaos_gamedays/`](sr
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 make setup     # install the package and dev tools
 make lint      # ruff, ruff format, mypy --strict
-make test      # 115 tests
+make test      # 128 tests
 make plans     # validate, brief --check and verify the shipped plans
 make audit     # pip-audit
 ```
@@ -129,12 +129,14 @@ Full numbers and commands: [docs/results/m1.md](docs/results/m1.md).
 
 | Test file | Tests | What it proves |
 |---|---|---|
-| `tests/test_model.py` | 42 | bounded durations; the schema rejects 15 kinds of broken plan; YAML aliases and Python tags refused; size limit |
-| `tests/test_rules.py` | 26 | each of the 11 rules fires on a one-field unsafe change and accepts the safe boundary cases; the unsafe example gives 14 findings |
+| `tests/test_model.py` | 44 | bounded durations; the schema rejects 15 kinds of broken plan; YAML aliases and Python tags refused; size limit; naive timestamps refused; atomic file writes |
+| `tests/test_rules.py` | 29 | each of the 11 rules fires on a one-field unsafe change and accepts the safe boundary cases (including lower-bound metrics); the unsafe example gives 14 findings |
 | `tests/test_sealing.py` | 13 | no sealing at or after the start; any edit after sealing detected; the committed lock matches the plans |
-| `tests/test_evaluate.py` | 21 | steady state first, sustained aborts only, verdict matches the fault-window samples (property test, 200 random series) |
-| `tests/test_cli.py` | 13 | exit codes, committed briefs current, seal-edit-verify cycle end to end |
-| **Total** | **115** | **115 passed, 0 failed, 0 skipped** (Python 3.14.5, Windows 11; CI runs Python 3.12) |
+| `tests/test_evaluate.py` | 27 | steady state first, sustained aborts only, verdict matches the fault-window samples (property test, 200 random series); NaN/Infinity and oversized series refused |
+| `tests/test_cli.py` | 15 | exit codes, committed briefs current, seal-edit-verify cycle end to end, sealing twice gives one lock entry |
+| **Total** | **128** | **128 passed, 0 failed, 0 skipped** (Python 3.14.5, Windows 11; CI runs Python 3.12) |
+
+Quality check against the 10 engineering rules, with the mutation table: [docs/quality/2026-11-01.md](docs/quality/2026-11-01.md).
 
 | Check | Result |
 |---|---|

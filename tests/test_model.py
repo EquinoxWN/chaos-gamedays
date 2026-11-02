@@ -107,3 +107,18 @@ def test_schema_rejects(doc: dict[str, Any], path: str, value: object, fragment:
     with pytest.raises(PlanError) as exc:
         from_dict(doc)
     assert any(fragment in p for p in exc.value.problems), exc.value.problems
+
+
+def test_parse_time_is_utc_and_refuses_naive_times() -> None:
+    assert model.parse_time("2026-11-05T16:00:00+02:00") == model.parse_time("2026-11-05T14:00:00Z")
+    with pytest.raises(ValueError, match="no time zone"):
+        model.parse_time("2026-11-05T14:00:00")
+
+
+def test_write_atomic_replaces_and_leaves_no_temp_file(tmp_path: Path) -> None:
+    target = tmp_path / "out.json"
+    target.write_text("old", encoding="utf-8")
+    model.write_atomic(target, "new")
+    model.write_atomic(target, "new")  # same write twice: same single file
+    assert target.read_text(encoding="utf-8") == "new"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["out.json"]

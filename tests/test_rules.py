@@ -95,3 +95,24 @@ def test_unique_ids(doc: dict[str, Any]) -> None:
     e = from_dict(doc)
     assert rules.check_unique_ids([e]) == []
     assert [f.rule for f in rules.check_unique_ids([e, e])] == ["unique-id"]
+
+
+def _lower_bound_plan(doc: dict[str, Any], abort_value: float) -> dict[str, Any]:
+    """GD-001 plus a lower-bound metric (success rate > 99.5) and an abort below abort_value."""
+    doc["steady_state"].append({"metric": "success_pct", "description": "share of 2xx", "unit": "%", "slo": {"op": ">", "value": 99}})
+    doc["hypothesis"]["expectations"].append({"metric": "success_pct", "op": ">", "value": 99.5})
+    doc["abort_conditions"].append({"metric": "success_pct", "op": "<", "value": abort_value, "for": "30s"})
+    return doc
+
+
+def test_lower_bound_abort_above_the_hypothesis_fires(doc: dict[str, Any]) -> None:
+    assert "abort-beyond-hypothesis" in _fired(_lower_bound_plan(doc, 99.6))
+
+
+def test_lower_bound_abort_below_the_hypothesis_is_fine(doc: dict[str, Any]) -> None:
+    assert _fired(_lower_bound_plan(doc, 90)) == set()
+
+
+def test_load_as_long_as_the_fault_is_fine(doc: dict[str, Any]) -> None:
+    doc["load"]["duration"] = doc["fault"]["duration"]
+    assert _fired(doc) == set()

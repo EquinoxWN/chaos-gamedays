@@ -131,3 +131,41 @@ def test_property_verdict_matches_window_samples(during: list[float]) -> None:
     bad = [v for v in during if not v < 300]
     assert r.verdict == ("refuted" if bad else "held")
     assert len(r.breaches) == len(bad)
+
+
+def test_breach_at_the_abort_sample_is_reported_and_later_ones_are_not() -> None:
+    err = [0.2] * 41
+    for i in range(12, 16):  # abort fires at t=210
+        err[i] = 6.0
+    p99 = [200.0] * 41
+    p99[14] = p99[15] = 350.0  # t=210 (the abort sample) and t=225 (after the stop)
+    r = evaluate(PLAN, _series(p99, err))
+    assert r.verdict == "aborted"
+    assert [b for b in r.breaches if b.startswith("checkout_p99_ms")] == ["checkout_p99_ms=350 at t=210s breaks checkout_p99_ms < 300"]
+
+
+def test_parse_series_enforces_the_sample_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("chaos_gamedays.evaluate.MAX_SAMPLES", 10)
+    b: list[list[int]] = [[i, 1] for i in range(4)]
+    ok = {"fault_start_s": 0, "samples": {"a": [[i, 1] for i in range(6)], "b": b}}
+    assert sum(len(v) for v in parse_series(ok).samples.values()) == 10
+    b.append([4, 1])
+    with pytest.raises(ValueError, match="more than 10 samples"):
+        parse_series(ok)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_parse_series_rejects_non_finite_numbers(bad: float) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        parse_series({"fault_start_s": 0, "samples": {"m": [[0, 1], [1, bad]]}})
+    with pytest.raises(ValueError, match="finite"):
+        parse_series({"fault_start_s": 0, "samples": {"m": [[bad, 1]]}})
+    with pytest.raises(ValueError, match="fault_start_s"):
+        parse_series({"fault_start_s": bad, "samples": {}})
+
+
+def test_load_series_rejects_nan_in_json(tmp_path: Any) -> None:
+    p = tmp_path / "s.json"
+    p.write_text('{"fault_start_s": 0, "samples": {"m": [[0, NaN]]}}', encoding="utf-8")
+    with pytest.raises(ValueError, match="finite"):
+        load_series(p)
