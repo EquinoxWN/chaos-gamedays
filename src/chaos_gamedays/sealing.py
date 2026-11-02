@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .model import Experiment, parse_time
+from .model import Experiment, parse_time, write_atomic
 
 LOCK_VERSION = 1
 MAX_LOCK_BYTES = 1024 * 1024
@@ -50,7 +50,7 @@ def read_lock(path: Path) -> dict[str, Seal]:
 def write_lock(path: Path, seals: dict[str, Seal]) -> None:
     """Write seals sorted by id, one stable JSON document."""
     plans = {pid: {"sha256": s.sha256, "sealed_at": s.sealed_at.strftime("%Y-%m-%dT%H:%M:%SZ")} for pid, s in sorted(seals.items())}
-    path.write_text(json.dumps({"version": LOCK_VERSION, "plans": plans}, indent=2) + "\n", encoding="utf-8")
+    write_atomic(path, json.dumps({"version": LOCK_VERSION, "plans": plans}, indent=2) + "\n")
 
 
 def seal(e: Experiment, seals: dict[str, Seal], now: datetime, *, reseal: bool = False) -> Seal:

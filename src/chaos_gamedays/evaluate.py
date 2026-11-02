@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -42,7 +43,7 @@ def parse_series(doc: object) -> Series:
     if not isinstance(doc, dict):
         raise ValueError("series must be a JSON object")
     start, raw = doc.get("fault_start_s"), doc.get("samples")
-    if not isinstance(start, int | float) or isinstance(start, bool) or start < 0:
+    if not isinstance(start, int | float) or isinstance(start, bool) or not math.isfinite(start) or start < 0:
         raise ValueError("fault_start_s must be a number >= 0")
     if not isinstance(raw, dict):
         raise ValueError("samples must be an object of metric -> [[t, value], ...]")
@@ -56,8 +57,12 @@ def parse_series(doc: object) -> Series:
             raise ValueError(f"more than {MAX_SAMPLES} samples")
         pts: list[tuple[float, float]] = []
         for p in points:
-            if not (isinstance(p, list) and len(p) == 2 and all(isinstance(v, int | float) and not isinstance(v, bool) for v in p)):
-                raise ValueError(f"sample {p!r} for {metric} must be [t, value]")
+            if not (
+                isinstance(p, list)
+                and len(p) == 2
+                and all(isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v) for v in p)
+            ):
+                raise ValueError(f"sample {p!r} for {metric} must be [t, value] with finite numbers")
             pts.append((float(p[0]), float(p[1])))
         if any(b[0] <= a[0] for a, b in itertools.pairwise(pts)):
             raise ValueError(f"sample times for {metric} must strictly increase")

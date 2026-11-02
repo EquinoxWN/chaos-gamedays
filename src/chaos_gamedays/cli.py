@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import brief, evaluate, rules, sealing
-from .model import Experiment, PlanError, load, parse_time
+from .model import Experiment, PlanError, load, parse_time, write_atomic
 
 EXIT_OK, EXIT_FAIL, EXIT_USAGE = 0, 1, 2
 VERDICT_EXIT = {"held": 0, "refuted": 3, "aborted": 4, "inconclusive": 5}
@@ -83,7 +83,7 @@ def cmd_brief(args: argparse.Namespace) -> int:
                 stale.append(target.as_posix())
         elif current != text:
             out_dir.mkdir(parents=True, exist_ok=True)
-            target.write_text(text, encoding="utf-8")
+            write_atomic(target, text)
             print(f"wrote {target.as_posix()}")
     if stale:
         print("\n".join(f"stale brief: {s} (run gameday brief --out-dir)" for s in stale), file=sys.stderr)
@@ -134,6 +134,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 def cmd_evaluate(args: argparse.Namespace) -> int:
     """Judge one plan's hypothesis against a recorded series; exit code encodes the verdict."""
+    if args.max_breaches < 0:
+        raise ValueError("--max-breaches must be >= 0")
     e = load(Path(args.plan))
     result = evaluate.evaluate(e, evaluate.load_series(Path(args.series)))
     if args.json:

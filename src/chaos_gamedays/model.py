@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -41,8 +42,11 @@ def parse_duration(text: str) -> int:
 
 
 def parse_time(text: str) -> datetime:
-    """UTC datetime from an ISO 8601 timestamp ending in Z."""
-    return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
+    """UTC datetime from an ISO 8601 timestamp with Z or an offset; naive times are refused."""
+    t = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if t.tzinfo is None:
+        raise ValueError(f"timestamp {text!r} has no time zone (end it in Z)")
+    return t.astimezone(UTC)
 
 
 def holds(value: float, op: Op, threshold: float) -> bool:
@@ -235,6 +239,13 @@ def from_dict(doc: dict[str, Any], source: str = "<plan>") -> Experiment:
         )
     except ValueError as exc:
         raise PlanError(source, [str(exc)]) from exc
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """Write to a sibling temp file and rename it over path, so a crash leaves the old or the new content."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def load(path: Path) -> Experiment:
