@@ -33,22 +33,26 @@ def plan_paths(items: Sequence[str]) -> list[Path]:
     return out
 
 
-def load_all(items: Sequence[str]) -> tuple[list[tuple[Path, Experiment]], list[str]]:
-    """Load every plan; return the good ones and one line per unreadable or schema-invalid plan."""
+def load_all(items: Sequence[str]) -> tuple[list[tuple[Path, Experiment]], dict[Path, list[str]]]:
+    """Load every plan; return the good ones and the problems of each unreadable or schema-invalid one."""
     good: list[tuple[Path, Experiment]] = []
-    bad: list[str] = []
+    bad: dict[Path, list[str]] = {}
     for p in plan_paths(items):
         try:
             good.append((p, load(p)))
         except PlanError as exc:
-            bad += [f"FAIL {p.as_posix()} schema: {m}" for m in exc.problems]
+            bad[p] = [f"{p.as_posix()} schema: {m}" for m in exc.problems]
     return good, bad
+
+
+def _lines(bad: dict[Path, list[str]]) -> list[str]:
+    return [line for lines in bad.values() for line in lines]
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
     """Schema plus safety rules for every plan; non-zero exit on any finding."""
     good, bad = load_all(args.paths)
-    lines = list(bad)
+    lines = [f"FAIL {line}" for line in _lines(bad)]
     for p, e in good:
         found = rules.check(e)
         lines += [f"FAIL {p.as_posix()} {e.id} {f.rule}: {f.message}" for f in found]
@@ -59,7 +63,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     lines += [f"FAIL {f.rule}: {f.message}" for f in rules.check_unique_ids(e for _, e in good)]
     failures = sum(1 for line in lines if line.startswith("FAIL"))
     print("\n".join(lines))
-    print(f"{len(good) + len({ln.split()[1] for ln in bad})} plan(s), {failures} finding(s)")
+    print(f"{len(good) + len(bad)} plan(s), {failures} finding(s)")
     return EXIT_FAIL if failures else EXIT_OK
 
 
@@ -67,7 +71,7 @@ def cmd_brief(args: argparse.Namespace) -> int:
     """Write (or with --check, compare) the Markdown brief for each plan."""
     good, bad = load_all(args.paths)
     if bad:
-        print("\n".join(bad), file=sys.stderr)
+        print("\n".join(_lines(bad)), file=sys.stderr)
         return EXIT_FAIL
     if args.out_dir is None:
         for _, e in good:
@@ -101,7 +105,7 @@ def cmd_seal(args: argparse.Namespace) -> int:
     """Seal plans that pass every rule into the lock file."""
     good, bad = load_all(args.paths)
     if bad:
-        print("\n".join(bad), file=sys.stderr)
+        print("\n".join(_lines(bad)), file=sys.stderr)
         return EXIT_FAIL
     lock = Path(args.lock)
     seals, now, errors = sealing.read_lock(lock), _now(args.now), []
@@ -125,7 +129,7 @@ def cmd_seal(args: argparse.Namespace) -> int:
 def cmd_verify(args: argparse.Namespace) -> int:
     """Check every plan is sealed, unchanged since sealing, and was sealed before its start."""
     good, bad = load_all(args.paths)
-    problems = bad + sealing.verify((e for _, e in good), sealing.read_lock(Path(args.lock)))
+    problems = _lines(bad) + sealing.verify((e for _, e in good), sealing.read_lock(Path(args.lock)))
     for line in problems:
         print(f"FAIL {line}")
     print(f"{len(good)} plan(s) checked against {Path(args.lock).as_posix()}, {len(problems)} problem(s)")

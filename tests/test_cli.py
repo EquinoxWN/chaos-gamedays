@@ -37,6 +37,23 @@ def test_validate_reports_schema_errors_and_duplicates(tmp_path: Path, capsys: p
     assert "3 plan(s)" in out
 
 
+def test_validate_counts_bad_plans_in_a_path_with_spaces(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    plans = tmp_path / "my plans"
+    plans.mkdir()
+    for name in ("a.yaml", "b.yaml"):
+        (plans / name).write_text("apiVersion: gameday/v1\nid: GD-1\n", encoding="utf-8")
+    assert main(["validate", str(plans)]) == 1
+    assert "2 plan(s)" in capsys.readouterr().out
+
+
+def test_verify_prints_schema_problems_once_prefixed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    (tmp_path / "broken.yaml").write_text("apiVersion: gameday/v1\nid: GD-1\n", encoding="utf-8")
+    assert main(["verify", str(tmp_path), "--lock", str(LOCK)]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL " in out
+    assert "FAIL FAIL" not in out
+
+
 def test_briefs_are_current() -> None:
     assert main(["brief", str(EXPERIMENTS), "--out-dir", str(BRIEFS), "--check"]) == 0
 
